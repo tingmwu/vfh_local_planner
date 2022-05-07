@@ -166,7 +166,10 @@ namespace vfh_local_planner
     //Checks if the given direction is clean
     bool VFHPlanner::DirectionIsClear(double goal_direction)
     {
+
         int goal_sector = rint(radToDeg(goal_direction)/(360/(config_.vfh_sections_number-1)));
+        if (goal_sector >= 72) goal_sector = 71;
+        // ROS_ERROR("goal_direction: %.2f, gola_sector: %d", radToDeg(goal_direction), goal_sector);
         std::cout << "sector of goal: " << goal_sector << std::endl;
 
         for (int k=0; k <= (config_.very_narrow_valley_threshold/2)-1; k++)
@@ -199,8 +202,20 @@ namespace vfh_local_planner
     }
 
     //Gets new direction to avoid obstacle based on the goal direction
-    double VFHPlanner::GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction)
+    double VFHPlanner::GetNewDirection(
+        double global_plan_goal_direction,
+        double current_robot_direction, 
+        double previews_direction, 
+        tf::Stamped<tf::Pose> pose
+        )
     {
+        // update pass_pos_ 
+        int sn = pass_pos_.size();
+        if(sn > 5) pass_pos_.erase(pass_pos_.begin());
+        geometry_msgs::Point p;
+        p.x = pose.getOrigin().getX();
+        p.y = pose.getOrigin().getY();
+        pass_pos_.push_back(p);
 
         double goal_diff;
         double curr_direction_diff;
@@ -218,6 +233,11 @@ namespace vfh_local_planner
             direction_cost = (goal_diff*config_.goal_weight) + (curr_direction_diff*config_.curr_direction_weight) + (prev_direction_diff*config_.prev_direction_weight);
             if (direction_cost < smallest_cost)
             {
+                // judge shock
+                int valley_length = candidate_valleys.at(i).size();
+                double tmp_ang = candidate_valleys.at(i).at(floor(valley_length/2))*(360/(config_.vfh_sections_number-1));
+                if(judgeShock(tmp_ang)) continue;
+                
                 smallest_cost = direction_cost;
                 best_valley = i;
                 valley_front = true;
@@ -228,6 +248,11 @@ namespace vfh_local_planner
             direction_cost = (goal_diff*config_.goal_weight) + (curr_direction_diff*config_.curr_direction_weight) + (prev_direction_diff*config_.prev_direction_weight);
             if (direction_cost < smallest_cost)
             {
+                // judge shock
+                int valley_length = candidate_valleys.at(i).size();
+                double tmp_ang = candidate_valleys.at(i).at(floor(valley_length/2))*(360/(config_.vfh_sections_number-1));
+                if(judgeShock(tmp_ang)) continue;
+
                 smallest_cost = direction_cost;
                 best_valley = i;
                 valley_front = false;
@@ -251,7 +276,34 @@ namespace vfh_local_planner
                 deviation_angle = candidate_valleys.at(best_valley).at(valley_length-1-floor(config_.wide_valley_threshold/2))*(360/(config_.vfh_sections_number-1));
             }
         }
+        
         return degToRad(deviation_angle);
+    }
+
+    bool VFHPlanner::judgeShock(double deviation_angle) {
+        // judge shock, if shock return true
+
+        int sn = pass_pos_.size();
+        if(pass_pos_.empty() || sn == 1) return false;
+
+        double k = std::tan(degToRad(deviation_angle));
+        double b = pass_pos_.at(sn - 1).y - k * pass_pos_.at(sn - 1).x;
+        double sum = 0;
+        // geometry_msgs::PoseStamped pre_pos = pass_pos_.at(n - 2);
+        double pre_angle = radToDeg( std::atan((pass_pos_.at(sn - 2).y - pass_pos_.at(sn - 1).y) /  (pass_pos_.at(sn - 2).x - pass_pos_.at(sn - 1).x)) );
+        if(std::fabs(deviation_angle - pre_angle) > 90) {
+            return false;
+        }
+        for (auto pose : pass_pos_) {
+            sum += std::pow((k * pose.x - pose.y), 2);
+        }
+        ROS_ERROR("=======%.2f========", sum);
+        double shock_thres = std::pow(0.2, 2) * sn;
+        if(sum < shock_thres ) {
+            ROS_ERROR("======= shock ======");
+            return true;
+        }
+        else return false;
     }
 
     //Get speeds to rotate the robot to the angle

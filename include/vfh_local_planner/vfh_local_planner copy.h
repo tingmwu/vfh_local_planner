@@ -30,11 +30,9 @@ namespace vfh_local_planner
         bool RotateToGoal(const tf::Stamped<tf::Pose>& global_pose, const tf::Stamped<tf::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel);
         void DriveToward(double angle_to_goal, double goal_distance, geometry_msgs::Twist& cmd_vel);
         bool DirectionIsClear(double goal_direction);
-        double GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction, tf::Stamped<tf::Pose> pose);
+        double GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction);
 
     private:
-
-    bool judgeShock(double deviation_angle);
 
     int window_width;
     int window_height;
@@ -53,8 +51,7 @@ namespace vfh_local_planner
     double cmd_vel_linear_x_;
     double cmd_vel_angular_z_;
 
-    std::vector<geometry_msgs::Point> pass_pos_;
-    // geometry_msgs::PoseStamped current_pose_;
+
     costmap_2d::Costmap2D* costmap_;
     std::vector<std::vector<double> > costmap_cells_angle;
     std::vector<std::vector<double> > costmap_cells_distance;

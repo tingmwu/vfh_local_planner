@@ -63,14 +63,6 @@ namespace vfh_local_planner
 
         void reconfigureCB(vfh_local_plannerConfig &config, uint32_t level);
 
-        void publishPlan(const std::vector<geometry_msgs::PoseStamped>& path, const ros::Publisher& pub);
-        
-        void getLocalPlan(double direction_to_follow, std::vector<geometry_msgs::PoseStamped>& local_plan);
-
-        // for visualisation, publishers of global and local plan
-        ros::Publisher g_plan_pub_, l_plan_pub_;
-        // current pose
-        tf::Stamped<tf::Pose> current_pose_;
         // pointer to external objects (do NOT delete object)
         costmap_2d::Costmap2DROS* costmap_ros_; ///<@brief pointer to costmap
         costmap_2d::Costmap2D* costmap_;
@@ -83,7 +75,7 @@ namespace vfh_local_planner
         std::string global_frame_;
 
         VFHPlanner vfh_planner;
-        bool prune_plan_;
+
         int vfh_sections_number;
         int smooth_length;
         double vfh_threshold;
