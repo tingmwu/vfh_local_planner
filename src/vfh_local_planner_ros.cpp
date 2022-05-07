@@ -2,14 +2,35 @@
 
 #include <pluginlib/class_list_macros.h>
 
-PLUGINLIB_DECLARE_CLASS(vfh_local_planner, VFHPlannerRos, vfh_local_planner::VFHPlannerRos, nav_core::BaseLocalPlanner)
+// PLUGINLIB_DECLARE_CLASS(vfh_local_planner, VFHPlannerRos, vfh_local_planner::VFHPlannerRos, nav_core::BaseLocalPlanner)
+PLUGINLIB_EXPORT_CLASS(vfh_local_planner::VFHPlannerRos, nav_core::BaseLocalPlanner)
 
+namespace tf2 {
+    void transformMsgToTF2(const geometry_msgs::Transform& msg, tf2::Transform& tf2)
+{
+    tf2 = tf2::Transform(tf2::Quaternion(msg.rotation.x, msg.rotation.y, msg.rotation.z, msg.rotation.w), tf2::Vector3(msg.translation.x, msg.translation.y, msg.translation.z));}
+
+    void transformMsgToTF2(const geometry_msgs::PoseStamped& msg, tf2::Transform& tf2) {
+        tf2 = tf2::Transform(tf2::Quaternion(msg.pose.orientation.x, msg.pose.orientation.y, msg.pose.orientation.z, msg.pose.orientation.w), tf2::Vector3(msg.pose.position.x, msg.pose.position.y, msg.pose.position.z));
+    }
+
+    void transformTF2ToMsg(const tf2::Transform& tf2, geometry_msgs::Transform& msg)
+    {
+    msg.translation.x = tf2.getOrigin().x();
+    msg.translation.y = tf2.getOrigin().y();
+    msg.translation.z = tf2.getOrigin().z();
+    msg.rotation.x = tf2.getRotation().x();
+    msg.rotation.y = tf2.getRotation().y();
+    msg.rotation.z = tf2.getRotation().z();
+    msg.rotation.w = tf2.getRotation().w();
+    }
+}
 namespace vfh_local_planner
 {
-    VFHPlannerRos::VFHPlannerRos(): costmap_ros_(NULL), tf_(NULL), initialized_(false), odom_helper_("odom") {};
+    VFHPlannerRos::VFHPlannerRos(): costmap_ros_(NULL), tf_(), initialized_(false), odom_helper_("odom") {};
 
-    VFHPlannerRos::VFHPlannerRos(std::string name, tf::TransformListener* tf, costmap_2d::Costmap2DROS* costmap_ros)
-        : costmap_ros_(NULL), tf_(NULL), initialized_(false), odom_helper_("odom")
+    VFHPlannerRos::VFHPlannerRos(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros)
+        : costmap_ros_(NULL), tf_(), initialized_(false), odom_helper_("odom")
     {
         // initialize planner
 		initialize(name, tf, costmap_ros);
@@ -17,8 +38,8 @@ namespace vfh_local_planner
 
     VFHPlannerRos::~VFHPlannerRos() {};
 
-
-    void VFHPlannerRos::initialize(std::string name, tf::TransformListener* tf, costmap_2d::Costmap2DROS* costmap_ros)
+    void VFHPlannerRos::initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros)
+    // void VFHPlannerRos::initialize(std::string name, tf2_ros::TransformListener* tf, costmap_2d::Costmap2DROS* costmap_ros)
     {
         // check if plugin initialized
         if(!initialized_)
@@ -37,6 +58,7 @@ namespace vfh_local_planner
             finding_alternative_way_ = false;
 
             costmap_ros_ = costmap_ros;
+            // tf_ = new tf2_ros::TransformListener(buffer_);
             tf_ = tf;
 
             global_frame_ = costmap_ros_->getGlobalFrameID();
@@ -95,31 +117,44 @@ namespace vfh_local_planner
 		}
 
         //Get the pose of the robot in the global frame of the costmap
-        tf::Stamped<tf::Pose> current_pose;
+        // tf2::Stamped<tf2::Pose> current_pose;
+        geometry_msgs::PoseStamped current_pose;
         if (!costmap_ros_->getRobotPose(current_pose)) {
             std::cout << "cant get current pose" << std::endl;
             return false;
         }
 
         //Get current robot velocity
-        tf::Stamped<tf::Pose> current_vel;
+        // tf::Stamped<tf::Pose> current_vel;
+        geometry_msgs::PoseStamped current_vel;
         odom_helper_.getRobotVel(current_vel);
 
         //Create transform used to transform coordinates from global planner frame to costmap frame
-        tf::StampedTransform frame_transform;
-        tf_->lookupTransform(global_frame_, ros::Time(), global_plan_.back().header.frame_id, global_plan_.back().header.stamp, 
-          global_plan_.back().header.frame_id, frame_transform);
-
+        // tf::StampedTransform frame_transform;
+        tf2_ros::Buffer buffer;
+        // tf_->lookupTransform(global_frame_, ros::Time(), global_plan_.back().header.frame_id, global_plan_.back().header.stamp, 
+        //   global_plan_.back().header.frame_id, frame_transform);
+        geometry_msgs::TransformStamped frame_transform = buffer.lookupTransform(global_frame_, global_plan_.back().header.frame_id, ros::Time());
+        
         //Transform plan goal from the global planner frame to the frame of the costmap
         const geometry_msgs::PoseStamped& plan_goal = global_plan_.back();
-        tf::Stamped<tf::Pose> global_goal;
-        tf::poseStampedMsgToTF(plan_goal, global_goal);
-        global_goal.setData(frame_transform * global_goal);
-        global_goal.stamp_ = frame_transform.stamp_;
+        tf2::Stamped<tf2::Pose> global_goal;
+        geometry_msgs::PoseStamped ps;
+
+        // tf2::transformMsgToTF2(plan_goal, global_goal);
+        // tf2::transformTF2ToMsg(plan_goal, golbal_goal);
+        // global_goal.setData(frame_transform * global_goal);
+        ps = buffer.transform(plan_goal, global_frame_);
+        tf2::Transform psT;
+        tf2::transformMsgToTF2(ps, psT);
+        
+        global_goal.setData(psT);
+        global_goal.stamp_ = frame_transform.header.stamp;
         global_goal.frame_id_ = global_frame_;
         
         //Transforms the global plan of the robot from the global planner frame to the frame of the costmap
         std::vector<geometry_msgs::PoseStamped> transformed_plan;
+        // if (!base_local_planner::transformGlobalPlan(*tf_, global_plan_, current_pose, *costmap_, global_frame_, transformed_plan)) {
         if (!base_local_planner::transformGlobalPlan(*tf_, global_plan_, current_pose, *costmap_, global_frame_, transformed_plan)) {
             
             ROS_WARN("Could not transform the global plan to the frame of the controller");
@@ -135,7 +170,9 @@ namespace vfh_local_planner
             //base_local_planner::prunePlan(current_pose, transformed_plan, global_plan_);
 
             //Get intermediary goal point in the transformed plan
-            int point_index = GetPlanPoint(transformed_plan, global_plan_,current_pose);
+            tf2::Stamped<tf2::Pose> current_pose_n;
+            tf2::transformMsgToTF2(current_pose, current_pose_n);
+            int point_index = GetPlanPoint(transformed_plan, global_plan_,current_pose_n);
             tf::poseStampedMsgToTF(transformed_plan.at(point_index), intermediary_goal_point);
 
         }
@@ -159,12 +196,15 @@ namespace vfh_local_planner
         //Check if the robot is at the goal coordinate x y
         double goal_x = global_goal.getOrigin().getX();
         double goal_y = global_goal.getOrigin().getY();
+        tf2::Stamped<tf2::Pose> current_pose_n, current_vel_n;
+        tf2::transformMsgToTF2(current_pose, current_pose_n);
+        tf2::transformMsgToTF2(current_vel, current_vel_n);
         if (base_local_planner::getGoalPositionDistance(current_pose, goal_x, goal_y) <= config_.xy_goal_tolerance_ || xy_goal_latch_)
         {
             std::cout << "xy reached" << std::endl;
             xy_goal_latch_ = true;
             //Check if the robot is at the same orientation of the goal
-            double goal_th = tf::getYaw(global_goal.getRotation());
+            double goal_th = tf2::impl::getYaw(global_goal.getRotation());
             if (fabs(base_local_planner::getGoalOrientationAngleDifference(current_pose, goal_th)) <= config_.yaw_goal_tolerance_)
             {
                 std::cout << "parou yupi" << std::endl;
@@ -176,7 +216,8 @@ namespace vfh_local_planner
             }
             else{
                 std::cout << "rotating to goal to end" << std::endl;
-                vfh_planner.RotateToGoal(current_pose, current_vel, goal_th, cmd_vel);
+                
+                vfh_planner.RotateToGoal(current_pose_n, current_vel_n, goal_th, cmd_vel);
                 return true;
             }
         }
@@ -186,21 +227,22 @@ namespace vfh_local_planner
         double goal_distance;
         if(finding_alternative_way_)
         {
-            double global_plan_goal_angle = atan2((global_goal.getOrigin().getY()-current_pose.getOrigin().getY()), (global_goal.getOrigin().getX()-current_pose.getOrigin().getX()));
+            
+            double global_plan_goal_angle = atan2((global_goal.getOrigin().getY()-current_pose_n.getOrigin().getY()), (global_goal.getOrigin().getX()-current_pose_n.getOrigin().getX()));
             goal_distance = 0.2;
             if (vfh_planner.DirectionIsClear(global_plan_goal_angle))
             {
                 direction_to_follow = global_plan_goal_angle;
-                goal_distance = std::min(sqrt(pow((global_goal.getOrigin().getX()-current_pose.getOrigin().getX()),2)+pow((global_goal.getOrigin().getY()-current_pose.getOrigin().getY()),2)), 0.3);
+                goal_distance = std::min(sqrt(pow((global_goal.getOrigin().getX()-current_pose_n.getOrigin().getX()),2)+pow((global_goal.getOrigin().getY()-current_pose_n.getOrigin().getY()),2)), 0.3);
             }
             else
             {
-                direction_to_follow = vfh_planner.GetNewDirection(global_plan_goal_angle, tf::getYaw(current_pose.getRotation()),previews_direction);
+                direction_to_follow = vfh_planner.GetNewDirection(global_plan_goal_angle, tf2::impl::getYaw(current_pose_n.getRotation()),previews_direction);
             }
         }
         else
         {
-            double intermediary_goal_orientation = atan2((intermediary_goal_point.getOrigin().getY()-current_pose.getOrigin().getY()), (intermediary_goal_point.getOrigin().getX()-current_pose.getOrigin().getX()));
+            double intermediary_goal_orientation = atan2((intermediary_goal_point.getOrigin().getY()-current_pose_n.getOrigin().getY()), (intermediary_goal_point.getOrigin().getX()-current_pose_n.getOrigin().getX()));
 
             //Check if the path is free
             if (!vfh_planner.DirectionIsClear(intermediary_goal_orientation))
@@ -214,7 +256,7 @@ namespace vfh_local_planner
             else
             {
                 direction_to_follow = intermediary_goal_orientation;
-                goal_distance = sqrt(pow((intermediary_goal_point.getOrigin().getX()-current_pose.getOrigin().getX()),2)+pow((intermediary_goal_point.getOrigin().getY()-current_pose.getOrigin().getY()),2));
+                goal_distance = sqrt(pow((intermediary_goal_point.getOrigin().getX()-current_pose_n.getOrigin().getX()),2)+pow((intermediary_goal_point.getOrigin().getY()-current_pose_n.getOrigin().getY()),2));
             }
         }
 
@@ -224,7 +266,7 @@ namespace vfh_local_planner
         if (rotating_to_goal_)
         {
             std::cout << "rotating to goal to start" << std::endl;
-            vfh_planner.RotateToGoal(current_pose, current_vel, direction_to_follow, cmd_vel);
+            vfh_planner.RotateToGoal(current_pose_n, current_vel_n, direction_to_follow, cmd_vel);
             if (fabs(base_local_planner::getGoalOrientationAngleDifference(current_pose, direction_to_follow)) < config_.yaw_goal_tolerance_)
             {
                 rotating_to_goal_ = false;
@@ -244,7 +286,7 @@ namespace vfh_local_planner
         else 
         {
             std::cout << "driving to goal" << std::endl;
-            vfh_planner.DriveToward(angles::shortest_angular_distance(tf::getYaw(current_pose.getRotation()),direction_to_follow), goal_distance, cmd_vel);
+            vfh_planner.DriveToward(angles::shortest_angular_distance(tf2::impl::getYaw(current_pose_n.getRotation()),direction_to_follow), goal_distance, cmd_vel);
         }
 
         return true;
@@ -261,7 +303,8 @@ namespace vfh_local_planner
         return goal_reached_;
     };
 
-    int VFHPlannerRos::GetPlanPoint(std::vector<geometry_msgs::PoseStamped> transformed_plan, std::vector<geometry_msgs::PoseStamped> &global_plan, tf::Stamped<tf::Pose> current_pose)
+    // int VFHPlannerRos::GetPlanPoint(std::vector<geometry_msgs::PoseStamped> transformed_plan, std::vector<geometry_msgs::PoseStamped> &global_plan, tf::Stamped<tf::Pose> current_pose)
+    int VFHPlannerRos::GetPlanPoint(std::vector<geometry_msgs::PoseStamped> transformed_plan, std::vector<geometry_msgs::PoseStamped> &global_plan, tf2::Stamped<tf2::Pose> current_pose)
     {
         int point = 0;
         for (int i = 0; i < transformed_plan.size(); i++)

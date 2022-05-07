@@ -12,6 +12,17 @@
 #include "vfh_local_planner/utils.h"
 #include "vfh_local_planner/vfh_local_plannerConfig.h"
 
+// #include "transform_datatypes.h"
+#include "tf2/transform_datatypes.h"
+#include "geometry_msgs/TransformStamped.h"
+#include "geometry_msgs/Twist.h"
+#include "tf2/impl/utils.h"
+
+
+namespace tf2 {
+    typedef tf2::Vector3 Point;
+    typedef tf2::Transform Pose;
+}
 namespace vfh_local_planner
 {
     class VFHPlanner
@@ -27,7 +38,7 @@ namespace vfh_local_planner
         void SmoothHistogram();
         void GetCandidateValleys();
 
-        bool RotateToGoal(const tf::Stamped<tf::Pose>& global_pose, const tf::Stamped<tf::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel);
+        bool RotateToGoal(const tf2::Stamped<tf2::Pose>& global_pose, const tf2::Stamped<tf2::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel);
         void DriveToward(double angle_to_goal, double goal_distance, geometry_msgs::Twist& cmd_vel);
         bool DirectionIsClear(double goal_direction);
         double GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction);

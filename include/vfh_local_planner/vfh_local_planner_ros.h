@@ -10,8 +10,10 @@
 
 // transforms
 #include <angles/angles.h>
-#include <tf/tf.h>
-#include <tf/transform_listener.h>
+// #include <tf/tf.h>
+#include <tf2_ros/transform_listener.h>
+#include <tf2/buffer_core.h>
+#include "tf/transform_datatypes.h"
 
 // costmap & geometry
 #include <costmap_2d/costmap_2d_ros.h>
@@ -34,7 +36,6 @@
 
 #include "vfh_local_planner/vfh_local_planner.h"
 
-
 namespace vfh_local_planner 
 {
 
@@ -43,13 +44,14 @@ namespace vfh_local_planner
     public:
         VFHPlannerRos();
 
-        VFHPlannerRos(std::string name, tf::TransformListener* tf,
+        VFHPlannerRos(std::string name, tf2_ros::Buffer* tf,
           costmap_2d::Costmap2DROS* costmap_ros);
         
         ~VFHPlannerRos();
 
-        void initialize(std::string name, tf::TransformListener* tf,
-          costmap_2d::Costmap2DROS* costmap_ros);
+        // void initialize(std::string name, tf2_ros::TransformListener* tf,
+          // costmap_2d::Costmap2DROS* costmap_ros);
+        void initialize(std::string name, tf2_ros::Buffer* tf, costmap_2d::Costmap2DROS* costmap_ros);
 
         bool setPlan(const std::vector<geometry_msgs::PoseStamped>& orig_global_plan);
         
@@ -59,14 +61,15 @@ namespace vfh_local_planner
 
     private:
 
-        int GetPlanPoint(std::vector<geometry_msgs::PoseStamped> transformed_plan, std::vector<geometry_msgs::PoseStamped> &global_plan, tf::Stamped<tf::Pose> current_pose);
+        int GetPlanPoint(std::vector<geometry_msgs::PoseStamped> transformed_plan, std::vector<geometry_msgs::PoseStamped> &global_plan, tf2::Stamped<tf2::Pose> current_pose);
 
         void reconfigureCB(vfh_local_plannerConfig &config, uint32_t level);
 
         // pointer to external objects (do NOT delete object)
         costmap_2d::Costmap2DROS* costmap_ros_; ///<@brief pointer to costmap
         costmap_2d::Costmap2D* costmap_;
-        tf::TransformListener* tf_; ///<@brief pointer to Transform Listener
+        // tf2_ros::TransformListener* tf_; ///<@brief pointer to Transform Listener
+        tf2_ros::Buffer* tf_;
         std::vector<geometry_msgs::PoseStamped> global_plan_;
         base_local_planner::OdometryHelperRos odom_helper_;
         dynamic_reconfigure::Server<vfh_local_plannerConfig> *dsrv_;

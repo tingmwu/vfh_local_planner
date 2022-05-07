@@ -255,12 +255,12 @@ namespace vfh_local_planner
     }
 
     //Get speeds to rotate the robot to the angle
-    bool VFHPlanner::RotateToGoal(const tf::Stamped<tf::Pose>& global_pose, const tf::Stamped<tf::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel)
+    bool VFHPlanner::RotateToGoal(const tf2::Stamped<tf2::Pose>& global_pose, const tf2::Stamped<tf2::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel)
     {
         cmd_vel.linear.x = 0.0;
 
-        double yaw = tf::getYaw(global_pose.getRotation());
-        double vel_yaw = tf::getYaw(robot_vel.getRotation());
+        double yaw = tf2::impl::getYaw(global_pose.getRotation());
+        double vel_yaw = tf2::impl::getYaw(robot_vel.getRotation());
         double ang_diff = angles::shortest_angular_distance(yaw, goal_th);
 
         double v_theta_samp = ang_diff > 0.0 ? std::min(config_.max_vel_th_,
