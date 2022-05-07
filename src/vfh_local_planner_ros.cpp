@@ -109,6 +109,7 @@ namespace vfh_local_planner
 
     bool VFHPlannerRos::computeVelocityCommands(geometry_msgs::Twist& cmd_vel)
     {
+        ROS_INFO("computeVelocityCommands");
         //Check if plugin initialized
 		if(!initialized_)
 		{
@@ -131,10 +132,10 @@ namespace vfh_local_planner
 
         //Create transform used to transform coordinates from global planner frame to costmap frame
         // tf::StampedTransform frame_transform;
-        tf2_ros::Buffer buffer;
+        // tf2_ros::Buffer buffer;
         // tf_->lookupTransform(global_frame_, ros::Time(), global_plan_.back().header.frame_id, global_plan_.back().header.stamp, 
         //   global_plan_.back().header.frame_id, frame_transform);
-        geometry_msgs::TransformStamped frame_transform = buffer.lookupTransform(global_frame_, global_plan_.back().header.frame_id, ros::Time());
+        geometry_msgs::TransformStamped frame_transform = tf_->lookupTransform(global_frame_, global_plan_.back().header.frame_id, ros::Time(0));
         
         //Transform plan goal from the global planner frame to the frame of the costmap
         const geometry_msgs::PoseStamped& plan_goal = global_plan_.back();
@@ -144,7 +145,7 @@ namespace vfh_local_planner
         // tf2::transformMsgToTF2(plan_goal, global_goal);
         // tf2::transformTF2ToMsg(plan_goal, golbal_goal);
         // global_goal.setData(frame_transform * global_goal);
-        ps = buffer.transform(plan_goal, global_frame_);
+        ps = tf_->transform(plan_goal, global_frame_);
         tf2::Transform psT;
         tf2::transformMsgToTF2(ps, psT);
         
