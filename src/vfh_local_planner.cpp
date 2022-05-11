@@ -21,14 +21,15 @@ namespace vfh_local_planner
     //Initializes the planner and set parameters
     bool VFHPlanner::Initialize(costmap_2d::Costmap2D* costmap)
     {
-        window_width = costmap->getSizeInCellsX();
-        window_height = costmap->getSizeInCellsY();
+        costmap_ = costmap;
+        window_width = costmap_->getSizeInCellsX();
+        window_height = costmap_->getSizeInCellsY();
 
         cmd_vel_linear_x_ = 0;
         cmd_vel_angular_z_ = 0;
         
         Alocate();
-        UpdateHistogram(costmap);
+        UpdateHistogram();
 
     }
 
@@ -50,7 +51,7 @@ namespace vfh_local_planner
     }
 
     //Updates the Hitogram based on the costmap
-    bool VFHPlanner::UpdateHistogram(costmap_2d::Costmap2D* costmap)
+    bool VFHPlanner::UpdateHistogram()
     {
         std::cout << "cleanning" << std::endl;
         fill(vfh_histogram.begin(), vfh_histogram.end(),0);
@@ -61,7 +62,10 @@ namespace vfh_local_planner
             {
                 double cell_sector = rint(costmap_cells_angle[x][y]/(360/(config_.vfh_sections_number-1)));
                 double distance_cost = 100/(1+exp((config_.increase_rate*costmap_cells_distance[x][y])-(config_.increase_rate*config_.vhf_detection_range)));
-                double magnitude = pow(((costmap->getCost(x, window_height-y-1))/254),2);
+                double magnitude = pow(((costmap_->getCost(x, window_height-y-1))/254),2);
+                // int tx = x + costmap_->getSizeInCellsX() / 2 - window_width / 2;
+                // int ty = y + costmap_->getSizeInCellsY() / 2 - window_height / 2;
+                // double magnitude = pow(((costmap_->getCost(tx, window_height-ty-1))/254),2);
                 vfh_histogram[cell_sector] += magnitude*distance_cost;
             }
         }
@@ -164,15 +168,20 @@ namespace vfh_local_planner
     }
 
     //Checks if the given direction is clean
-    bool VFHPlanner::DirectionIsClear(double goal_direction)
+    bool VFHPlanner::DirectionIsClear(double goal_direction, tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose)
     {
+        if(isDirect(goal_pose, current_pose)) {
+            return true;
+        }
         int goal_sector = rint(radToDeg(goal_direction)/(360/(config_.vfh_sections_number-1)));
+        if (goal_sector >= config_.vfh_sections_number) goal_sector %= (vfh_sections_number - 1);
+        // ROS_ERROR("goal_direction: %.2f, gola_sector: %d", radToDeg(goal_direction), goal_sector);
         std::cout << "sector of goal: " << goal_sector << std::endl;
 
         for (int k=0; k <= (config_.very_narrow_valley_threshold/2)-1; k++)
             {
                 int upper_sector = (goal_sector+k > config_.vfh_sections_number-1)? goal_sector+k - config_.vfh_sections_number: goal_sector+k;
-                int lower_sector = (goal_sector-k < 0)? config_.vfh_sections_number - goal_sector-k: goal_sector-k;
+                int lower_sector = (goal_sector-k < 0)? config_.vfh_sections_number + goal_sector-k: goal_sector-k;
                 std::cout << "vsec " << upper_sector << "  " << lower_sector << std::endl;
                 if (vfh_histogram.at(upper_sector) > config_.vfh_threshold || vfh_histogram.at(lower_sector) > config_.vfh_threshold)
                     return false;
@@ -197,10 +206,117 @@ namespace vfh_local_planner
         */
         return true;
     }
+    bool VFHPlanner::judgeIntersect() {
+        return true;
+    }
+    bool VFHPlanner::isDirect(tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose) {
+        int width = costmap_->getSizeInCellsX();
+        int height = costmap_->getSizeInCellsY();
+        double resolution = costmap_->getResolution();
+        int tx = floor( (goal_pose.getOrigin().getX() - current_pose.getOrigin().getX() ) / resolution + 0.5) + width / 2;
+        int ty = height / 2 - floor( (goal_pose.getOrigin().getY() - current_pose.getOrigin().getY()) / resolution + 0.5);
+        std::cout << "goal_pose: (" << goal_pose.getOrigin().getX() << ", " << goal_pose.getOrigin().getY() << ")" << std::endl;
+        std::cout << "curr_pose: (" << current_pose.getOrigin().getX() << ", " << current_pose.getOrigin().getY() << ")" << std::endl;
+        std::cout << "txy: (" << tx << ", " << ty << ")" << std::endl;
+        int xl, xr, yd, yu;
+        if(tx >= width / 2) {
+            xl = width / 2;
+            xr = tx;
+        }
+        else {
+            xl = tx;
+            xr = width / 2;
+        }
+        if(ty >= height / 2) {
+            yd = height / 2;
+            yu = ty;
+        }
+        else {
+            yd = ty;
+            yu = height / 2;
+        }
+        double k = atan2(ty - height / 2, tx - width / 2);
+        double b = ty - k * tx;
+        for(int x = xl; x < xr; x++) {
+            for(int y = yd; y < yu; y++) {
+                int cost = int(costmap_->getCost(x, y));
+                if(cost > config_.cost_threshold) {
+                    double dis = abs(k * x + b - y) / sqrt(1 + k * k) * resolution;
+                    if(dis < config_.collision_threshold) {
+                        std::cout << "Can not direct to goal!" << std::endl;
+                        std::cout << "start pos: (" << width / 2 << ", " << height / 2 << ")" << std::endl;
+                        std::cout << "goal pos: (" << tx << ", " << ty << ")" << std::endl;
+                        std::cout << "x: " << x << " y: " << y << " dis: " << dis << " cost: " << cost << std::endl;
+                        return false;
+                    }
+                }
+            }
+        }
+        
+    }
+    bool VFHPlanner::isDirect(double deviation_angle, tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose) {
+        int width = costmap_->getSizeInCellsX();
+        int height = costmap_->getSizeInCellsY();
+        int curr_x = current_pose.getOrigin().getX();
+        int curr_y = current_pose.getOrigin().getY();
+
+        int goal_x = goal_pose.getOrigin().getX();
+        int goal_y = goal_pose.getOrigin().getY();
+        int xl, xr, yd, yu;
+        if(goal_x >= curr_x) {
+            xl = curr_x;
+            xr = goal_x;
+        }
+        else {
+            xl = goal_x;
+            xr = curr_x;
+        }
+        if(goal_y >= curr_y) {
+            yd = curr_y;
+            yu = goal_y;
+        }
+        else {
+            yd = goal_y;
+            yu = curr_y;
+        }
+        
+        double k = atan2(goal_y - curr_y, goal_x - curr_x);
+        double b = goal_y - k * goal_x;
+        for(int x = xl; x <= xr; x++) {
+            for(int y = yd; y <= yu; y++) {
+                int cost = int(costmap_->getCost(x, y));
+                if(cost > config_.cost_threshold) {
+                    double dis = abs(k * x + b - y) / sqrt(1 + k * k) * costmap_->getResolution();
+                    if(dis < config_.collision_threshold) {
+                        std::cout << "Can not direct to goal!" << std::endl;
+                        std::cout << "start pos: (" << width / 2 << ", " << height / 2 << ")" << std::endl;
+                        std::cout << "goal pos: (" << goal_x << ", " << goal_y << ")" << std::endl;
+                        std::cout << "x: " << x << " y: " << y << " dis: " << dis << " cost: " << cost << std::endl;
+                        return false;
+                    }
+                }
+            }
+        }
+        std::cout << "Direct to goal!" << std::endl;
+        return true;
+        
+    }
 
     //Gets new direction to avoid obstacle based on the goal direction
-    double VFHPlanner::GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction)
+    double VFHPlanner::GetNewDirection(
+        double global_plan_goal_direction,
+        double current_robot_direction, 
+        double previews_direction, 
+        tf2::Stamped<tf2::Pose> pose
+        )
     {
+        // update pass_pos_ 
+        int sn = pass_pos_.size();
+        if(sn > 5) pass_pos_.erase(pass_pos_.begin());
+        geometry_msgs::Point p;
+        p.x = pose.getOrigin().getX();
+        p.y = pose.getOrigin().getY();
+        pass_pos_.push_back(p);
 
         double goal_diff;
         double curr_direction_diff;
@@ -218,6 +334,11 @@ namespace vfh_local_planner
             direction_cost = (goal_diff*config_.goal_weight) + (curr_direction_diff*config_.curr_direction_weight) + (prev_direction_diff*config_.prev_direction_weight);
             if (direction_cost < smallest_cost)
             {
+                // judge shock
+                // int valley_length = candidate_valleys.at(i).size();
+                // double tmp_ang = candidate_valleys.at(i).at(floor(valley_length/2))*(360/(config_.vfh_sections_number-1));
+                // if(judgeShock(tmp_ang)) continue;
+
                 smallest_cost = direction_cost;
                 best_valley = i;
                 valley_front = true;
@@ -228,6 +349,11 @@ namespace vfh_local_planner
             direction_cost = (goal_diff*config_.goal_weight) + (curr_direction_diff*config_.curr_direction_weight) + (prev_direction_diff*config_.prev_direction_weight);
             if (direction_cost < smallest_cost)
             {
+                // judge shock
+                // int valley_length = candidate_valleys.at(i).size();
+                // double tmp_ang = candidate_valleys.at(i).at(floor(valley_length/2))*(360/(config_.vfh_sections_number-1));
+                // if(judgeShock(tmp_ang)) continue;
+
                 smallest_cost = direction_cost;
                 best_valley = i;
                 valley_front = false;
@@ -254,8 +380,39 @@ namespace vfh_local_planner
         return degToRad(deviation_angle);
     }
 
+    bool VFHPlanner::judgeShock(double deviation_angle) {
+        // judge shock, if shock return true
+
+        int sn = pass_pos_.size();
+        if(pass_pos_.empty() || sn == 1) return false;
+
+        double k = std::tan(degToRad(deviation_angle));
+        double b = pass_pos_.at(sn - 1).y - k * pass_pos_.at(sn - 1).x;
+        double sum = 0;
+        // geometry_msgs::PoseStamped pre_pos = pass_pos_.at(n - 2);
+        double pre_angle = radToDeg( std::atan((pass_pos_.at(sn - 2).y - pass_pos_.at(sn - 1).y) /  (pass_pos_.at(sn - 2).x - pass_pos_.at(sn - 1).x)) );
+        if(std::fabs(deviation_angle - pre_angle) > 90) {
+            return false;
+        }
+        for (auto pose : pass_pos_) {
+            sum += std::pow((k * pose.x - pose.y), 2);
+        }
+        ROS_ERROR("=======%.2f========", sum);
+        double shock_thres = std::pow(0.2, 2) * sn;
+        if(sum < shock_thres ) {
+            ROS_ERROR("======= shock ======");
+            return true;
+        }
+        else return false;
+    }
+
     //Get speeds to rotate the robot to the angle
-    bool VFHPlanner::RotateToGoal(const tf2::Stamped<tf2::Pose>& global_pose, const tf2::Stamped<tf2::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel)
+    bool VFHPlanner::RotateToGoal(
+        const tf2::Stamped<tf2::Pose>& global_pose, 
+        const tf2::Stamped<tf2::Pose>& robot_vel, 
+        double goal_th, 
+        geometry_msgs::Twist& cmd_vel
+        )
     {
         cmd_vel.linear.x = 0.0;
 

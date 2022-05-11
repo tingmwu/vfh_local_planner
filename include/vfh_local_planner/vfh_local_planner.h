@@ -34,16 +34,34 @@ namespace vfh_local_planner
         void Reconfigure(vfh_local_plannerConfig &cfg);
         bool Initialize(costmap_2d::Costmap2D* costmap);
         void Alocate();
-        bool UpdateHistogram(costmap_2d::Costmap2D* costmap);
+        bool UpdateHistogram();
         void SmoothHistogram();
         void GetCandidateValleys();
 
         bool RotateToGoal(const tf2::Stamped<tf2::Pose>& global_pose, const tf2::Stamped<tf2::Pose>& robot_vel, double goal_th, geometry_msgs::Twist& cmd_vel);
         void DriveToward(double angle_to_goal, double goal_distance, geometry_msgs::Twist& cmd_vel);
-        bool DirectionIsClear(double goal_direction);
-        double GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction);
+        bool DirectionIsClear(double goal_direction, tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose);
+        // double GetNewDirection(double global_plan_goal_direction, double current_robot_direction, double previews_direction);
+        double GetNewDirection(
+            double global_plan_goal_direction, 
+            double current_robot_direction, 
+            double previews_direction, 
+            tf2::Stamped<tf2::Pose> pose
+            );
+
 
     private:
+
+    bool judgeShock(double deviation_angle);
+    bool judgeIntersect();
+
+    /**
+    * @brief judge the direction is direct to goal
+    * @param deviation_angle the goal direction
+    * @return True if robot can drive directily to the goal
+    * */
+    bool isDirect(double deviation_angle, tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose);
+    bool isDirect(tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose);
 
     int window_width;
     int window_height;
@@ -62,6 +80,8 @@ namespace vfh_local_planner
     double cmd_vel_linear_x_;
     double cmd_vel_angular_z_;
 
+    std::vector<geometry_msgs::Point> pass_pos_;
+    // geometry_msgs::PoseStamped current_pose_;
 
     costmap_2d::Costmap2D* costmap_;
     std::vector<std::vector<double> > costmap_cells_angle;
