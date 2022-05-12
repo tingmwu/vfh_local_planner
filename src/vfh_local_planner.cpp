@@ -111,17 +111,31 @@ namespace vfh_local_planner
     {
         std::vector<double> smoothed_histogram(config_.vfh_sections_number);
         double smoothed;
+        int smooth_l = config_.smooth_length;
+        int n = config_.vfh_sections_number;
         for (int i=0; i < config_.vfh_sections_number; i++)
         {
-            smoothed = config_.smooth_length*vfh_histogram[i];
-            for (int k=1; k < config_.smooth_length-1; k++)
-            {
-                int lower_it = (i-k < 0)? config_.vfh_sections_number - i-k: i-k;
-                int upper_it = (i+k > config_.vfh_sections_number-1)? i+k - config_.vfh_sections_number: i+k;
+            // smoothed = config_.smooth_length*vfh_histogram[i];
+            // for (int k=1; k < config_.smooth_length-1; k++)
+            // {
+            //     int lower_it = (i-k < 0)? config_.vfh_sections_number - i-k: i-k;
+            //     int upper_it = (i+k > config_.vfh_sections_number-1)? i+k - config_.vfh_sections_number: i+k;
                 
-                smoothed += (config_.smooth_length-k)*vfh_histogram[lower_it] + (config_.smooth_length-k)*vfh_histogram[upper_it];
+            //     smoothed += (config_.smooth_length-k)*vfh_histogram[lower_it] + (config_.smooth_length-k)*vfh_histogram[upper_it];
+            // }
+            int lower_it = (i - smooth_l >= 0) ? (i - smooth_l) : (0);
+            int upper_it = (i + smooth_l < n) ? (i + smooth_l) : (n - 1);
+            smoothed = vfh_histogram[i] * smooth_l;
+            for(int j = lower_it; j < i; j++) {
+                int t = j - (i - smooth_l - 1);
+                smoothed += vfh_histogram[j] * t;
             }
-            smoothed_histogram[i] = smoothed/(2*config_.smooth_length+1);
+            for(int j = upper_it; j > i; j--) {
+                int t = i + smooth_l + 1 - j;
+                smoothed += vfh_histogram[j] * t;
+            }
+
+            smoothed_histogram[i] = smoothed/(2*smooth_l+1);
         }
         vfh_histogram = smoothed_histogram;
     }
@@ -170,7 +184,10 @@ namespace vfh_local_planner
     //Checks if the given direction is clean
     bool VFHPlanner::DirectionIsClear(double goal_direction, tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose)
     {
-        if(isDirect(goal_pose, current_pose)) {
+        if(isDirect(goal_pose, current_pose) && !judgeShock(goal_direction)) {
+            std::cout << "isDirect!" << std::endl;
+            // update pass_pos_ 
+            updatePassPose(current_pose);
             return true;
         }
         int goal_sector = rint(radToDeg(goal_direction)/(360/(config_.vfh_sections_number-1)));
@@ -204,11 +221,17 @@ namespace vfh_local_planner
             }
         }
         */
+
+        // update pass_pos_ 
+        updatePassPose(current_pose);
+        
         return true;
     }
+    
     bool VFHPlanner::judgeIntersect() {
-        return true;
+        return false;
     }
+
     bool VFHPlanner::isDirect(tf2::Stamped<tf2::Pose> goal_pose, tf2::Stamped<tf2::Pose> current_pose) {
         int width = costmap_->getSizeInCellsX();
         int height = costmap_->getSizeInCellsY();
@@ -301,7 +324,14 @@ namespace vfh_local_planner
         return true;
         
     }
-
+    void VFHPlanner::updatePassPose(tf2::Stamped<tf2::Pose> pose) {
+        int sn = pass_pos_.size();
+        if(sn > 5) pass_pos_.erase(pass_pos_.begin());
+        geometry_msgs::Point p;
+        p.x = pose.getOrigin().getX();
+        p.y = pose.getOrigin().getY();
+        pass_pos_.push_back(p);
+    }
     //Gets new direction to avoid obstacle based on the goal direction
     double VFHPlanner::GetNewDirection(
         double global_plan_goal_direction,
@@ -311,12 +341,7 @@ namespace vfh_local_planner
         )
     {
         // update pass_pos_ 
-        int sn = pass_pos_.size();
-        if(sn > 5) pass_pos_.erase(pass_pos_.begin());
-        geometry_msgs::Point p;
-        p.x = pose.getOrigin().getX();
-        p.y = pose.getOrigin().getY();
-        pass_pos_.push_back(p);
+        updatePassPose(pose);
 
         double goal_diff;
         double curr_direction_diff;
@@ -380,26 +405,42 @@ namespace vfh_local_planner
         return degToRad(deviation_angle);
     }
 
-    bool VFHPlanner::judgeShock(double deviation_angle) {
+    bool VFHPlanner::judgeShock(double goal_direction) {
         // judge shock, if shock return true
+        std::cout << "judge shock!" << std::endl;
 
         int sn = pass_pos_.size();
-        if(pass_pos_.empty() || sn == 1) return false;
-
-        double k = std::tan(degToRad(deviation_angle));
+        if(pass_pos_.empty() || sn == 1) {
+            std::cout << "pass pose is empty!" << std::endl;
+            return false;
+        }
+        double deviation_angle = radToDeg(goal_direction);
+        double k = std::tan(goal_direction);
         double b = pass_pos_.at(sn - 1).y - k * pass_pos_.at(sn - 1).x;
         double sum = 0;
+        double average_dis = 0;
+        std::vector<double> dis_sum(2, 0);
         // geometry_msgs::PoseStamped pre_pos = pass_pos_.at(n - 2);
         double pre_angle = radToDeg( std::atan((pass_pos_.at(sn - 2).y - pass_pos_.at(sn - 1).y) /  (pass_pos_.at(sn - 2).x - pass_pos_.at(sn - 1).x)) );
         if(std::fabs(deviation_angle - pre_angle) > 90) {
+            std::cout << "devition_angle diff pre_angle" << std::endl;
             return false;
         }
         for (auto pose : pass_pos_) {
             sum += std::pow((k * pose.x - pose.y), 2);
+            dis_sum[0] += pose.x;
+            dis_sum[1] += pose.y;
         }
-        ROS_ERROR("=======%.2f========", sum);
+        dis_sum[0] /= sn;
+        dis_sum[1] /= sn;
+        for(auto pose : pass_pos_) {
+            average_dis += sqrt(pow(pose.x - dis_sum[0], 2) + pow(pose.y - dis_sum[1], 2));
+        }
+        average_dis /= sn;
+        ROS_ERROR("=======sum: %.2f========", sum);
+        ROS_ERROR("=======average_dis: %.2f========", average_dis);
         double shock_thres = std::pow(0.2, 2) * sn;
-        if(sum < shock_thres ) {
+        if(sum < shock_thres && average_dis < 0.2) {
             ROS_ERROR("======= shock ======");
             return true;
         }
